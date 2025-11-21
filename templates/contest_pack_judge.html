@@ -1,0 +1,199 @@
+{% extends "layout/basic.html" %}
+{% block content %}
+<div class="row">
+    <div class="medium-12 columns">
+        <div class="section">
+            <div class="section__header">
+                <h1 class="section__title"> {{tdoc.title}} 批量评测</h1>
+            </div>
+            <div class="section__body">
+                <form id="upload-form" class="form">
+                    <div class="row">
+                        <div class="medium-6 columns">
+                            <label>题目目录名 (用逗号分隔，例如: T1,T2,T3)</label>
+                            <input type="text" name="problemDirs" class="input-text" placeholder="T1,T2,T3" required>
+                        </div>
+                        <div class="medium-6 columns">
+                            <label>上传压缩包 (ZIP)</label>
+                            <input type="file" name="file" accept=".zip" required>
+                        </div>
+                    </div>
+                    <div class="row" style="margin-top: 1rem;">
+                        <div class="columns">
+                            <button type="submit" class="button button--primary">上传并扫描</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section__header">
+                <h1 class="section__title">注意事项</h1>
+            </div>
+            <div class="section__body typo">
+                <ul>
+                    <li>请上传 ZIP 格式的压缩包。</li>
+                    <li>压缩包结构应为：<code>/准考证号/题目目录/代码文件.cpp</code>。</li>
+                    <li>例如：<code>/SC-J00001/T1/T1.cpp</code>。</li>
+                    <li>题目目录名请在上方输入框中填写，多个目录用逗号分隔。</li>
+                    <li>评测过程中，系统会自动创建用户并提交代码。</li>
+                    <li>如果用户已存在，将直接使用该用户进行评测。</li>
+                    <li>评测进度根据实际评测完成情况更新，请点击“刷新”按钮查看最新进度。</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section__header">
+                <h1 class="section__title">评测记录</h1>
+            </div>
+            <div class="section__body">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>创建时间</th>
+                            <th>考生数</th>
+                            <th>状态</th>
+                            <th>进度</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for pj in pjudges %}
+                        <tr data-id="{{ pj._id }}">
+                            <td>{{ datetimeSpan(pj.createdAt)|safe }}</td>
+                            <td>{{ pj.candidates|length }}</td>
+                            <td class="status-text">{{ pj.judgeStatus }}</td>
+                            <td style="min-width: 150px;">
+                                <div class="progress" role="progressbar" tabindex="0" aria-valuenow="{{ pj.progress.submitted }}" aria-valuemin="0" aria-valuemax="{{ pj.progress.total }}" style="margin-bottom: 0; height: 1rem;">
+                                    {% set percent = pj.progress.submitted / pj.progress.total * 100 if pj.progress.total > 0 else 0 %}
+                                    <div class="progress-meter" style="width: {{ percent }}%"></div>
+                                </div>
+                                <div style="text-align: center; font-size: 0.8rem; line-height: 1.2;">
+                                    已递交: {{ pj.progress.submitted or 0 }} / {{ pj.progress.total }}
+                                </div>
+                            </td>
+                            <td style="min-width: 220px; white-space: normal;">
+                                <a class="button button--small" href="/contest/{{ tdoc._id }}/scoreboard" target="_blank" style="margin-bottom: 4px;">查看结果</a>
+                                <a class="button button--small" href="/record?tid={{ tdoc._id }}&status=0" target="_blank" style="margin-bottom: 4px;">显示评测队列</a>
+                                {% if pj.judgeStatus == 'judging' %}
+                                <button class="button button--small button--primary" disabled style="margin-bottom: 4px;">评测中...</button>
+                                {% elif pj.judgeStatus == 'scanning' %}
+                                <button class="button button--small button--primary" disabled style="margin-bottom: 4px;">扫描中...</button>
+                                {% elif pj.judgeStatus == 'error' %}
+                                <button class="button button--small button--primary" onclick="startJudge('{{ pj._id }}')" style="margin-bottom: 4px;">重试</button>
+                                <div style="color: red; font-size: 0.8rem;">{{ pj.error }}</div>
+                                {% else %}
+                                <button class="button button--small button--primary" onclick="startJudge('{{ pj._id }}')" style="margin-bottom: 4px;">开始评测</button>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentPackJudgeId = null;
+
+document.getElementById('upload-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const file = formData.get('file');
+    const problemDirs = formData.get('problemDirs').split(',').map(s => s.trim()).filter(s => s);
+    
+    if (!file || problemDirs.length === 0) return alert('请填写完整');
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+        try {
+            const res = await $.post('', {
+                file: reader.result,
+                problemDirs: problemDirs
+            });
+            if (res.success) {
+                alert('上传成功，正在扫描...');
+                location.reload();
+            } else {
+                alert(res.error);
+            }
+        } catch (err) {
+            alert(err.message);
+        }
+    };
+    reader.readAsDataURL(file);
+});
+
+async function startJudge(id) {
+    if (!confirm('确定要开始评测吗？')) return;
+    try {
+        const res = await $.post('', {
+            packJudgeId: id,
+            mode: 'all'
+        });
+        if (res.success) {
+            alert('已开始评测');
+            location.reload();
+        } else {
+            alert(res.error);
+        }
+    } catch (e) {
+        alert(e.message);
+    }
+}
+
+function pollStatus() {
+    const rows = document.querySelectorAll('tr[data-id]');
+    rows.forEach(async row => {
+        const id = row.dataset.id;
+        const statusCell = row.querySelector('.status-text');
+        const status = statusCell.textContent.trim();
+        
+        if (status === 'judging' || status === 'scanning') {
+            try {
+                const op = status === 'judging' ? 'result' : 'status';
+                const res = await $.post('', {
+                    packJudgeId: id,
+                    op: op
+                });
+                
+                if (res.success) {
+                    // Update status text
+                    if (res.status) statusCell.textContent = res.status;
+                    
+                    // Update progress bar
+                    if (res.progress) {
+                        const total = res.progress.total;
+                        const submitted = res.progress.submitted || 0;
+                        const percent = total > 0 ? (submitted / total * 100) : 0;
+                        
+                        const progressBar = row.querySelector('.progress-meter');
+                        const progressText = row.querySelector('.progress').nextElementSibling; // The div with text
+                        
+                        if (progressBar) progressBar.style.width = percent + '%';
+                        if (progressText) {
+                            progressText.innerHTML = `已递交: ${submitted} / ${total}`;
+                        }
+                    }
+
+                    // Reload if status changed to completed or ready (from scanning)
+                    if (res.status !== status) {
+                        if (res.status === 'completed' || res.status === 'ready' || res.status === 'error') {
+                            location.reload();
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+    });
+}
+
+setInterval(pollStatus, 3000);
+</script>
+{% endblock %}
