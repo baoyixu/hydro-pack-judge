@@ -196,7 +196,7 @@ class PackJudgeHandler extends Handler {
                     candidates.push({ id: dir, name: dir });
                     for (const pdir of pjudge.problemDirs) {
                         const cppFile = path.join(dirPath, pdir, `${pdir}.cpp`);
-                        if (existsSync(cppFile)) totalFiles++;
+                        if (existsSync(cppFile) && statSync(cppFile).size > 0) totalFiles++;
                     }
                 }
             }
@@ -348,7 +348,7 @@ class PackJudgeHandler extends Handler {
                     const problemPath = path.join(basePath, candidateId, problemDir);
                     const cppFile = path.join(problemPath, `${problemDir}.cpp`);
 
-                    if (existsSync(cppFile)) {
+                    if (existsSync(cppFile) && statSync(cppFile).size > 0) {
                         try {
                             const code = await readGBKFile(cppFile);
                             const codeWithComment = `// packjudge: ${packJudgeId}
@@ -386,6 +386,13 @@ ${code}`;
                 }
 
             }
+
+            await coll.updateOne({ _id: packJudgeId }, {
+                $set: {
+                    judgeStatus: 'completed',
+                    updatedAt: new Date(),
+                }
+            });
 
         } catch (err) {
             console.error('Judge error:', err);
@@ -468,7 +475,7 @@ export async function apply(ctx: Context) {
         if (!handler.response.template) return;
         // 检查是否是比赛相关的页面并且不是作业 (homework)
         const tdoc = (handler as any).tdoc;
-        if (tdoc && tdoc.rule !== 'homework') {
+        if (tdoc && tdoc.docType === 30 && tdoc.rule !== 'homework') {
             const tid = tdoc.docId || tdoc._id; // 确保获取到 ObjectId
 
             // 检查权限：只有比赛所有者或有编辑权限的人才能看到 批量评测
